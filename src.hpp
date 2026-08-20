@@ -12,29 +12,51 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
     size_t m = i + 1;  // number of key-value pairs in this round
     
     // Step 1: Concatenate keys[0..i] into K_all (shape [m, 512])
-    gpu_sim.MoveMatrixToSharedMem(keys[0]);
-    Matrix* K_all = matrix_memory_allocator.Allocate("K_all");
-    gpu_sim.Copy(keys[0], K_all, kInSharedMemory);
-    
-    for (size_t j = 1; j <= i; ++j) {
+    // Move all keys to SRAM first
+    for (size_t j = 0; j <= i; ++j) {
       gpu_sim.MoveMatrixToSharedMem(keys[j]);
-      Matrix* new_K_all = matrix_memory_allocator.Allocate("new_K_all");
-      gpu_sim.Concat(K_all, keys[j], new_K_all, 0, kInSharedMemory);
-      gpu_sim.ReleaseMatrix(K_all);
-      K_all = new_K_all;
+    }
+    gpu_sim.Run(false, &matrix_memory_allocator);
+    
+    // Create K_all by concatenating keys
+    Matrix* K_all = nullptr;
+    for (size_t j = 0; j <= i; ++j) {
+      if (K_all == nullptr) {
+        // First key: copy to a new matrix
+        K_all = matrix_memory_allocator.Allocate("K_all");
+        gpu_sim.Copy(keys[j], K_all, kInSharedMemory);
+        gpu_sim.Run(false, &matrix_memory_allocator);
+      } else {
+        // Concatenate next key
+        Matrix* new_K_all = matrix_memory_allocator.Allocate("new_K_all");
+        gpu_sim.Concat(K_all, keys[j], new_K_all, 0, kInSharedMemory);
+        gpu_sim.ReleaseMatrix(K_all);
+        K_all = new_K_all;
+      }
     }
     
     // Step 2: Concatenate values[0..i] into V_all (shape [m, 512])
-    gpu_sim.MoveMatrixToSharedMem(values[0]);
-    Matrix* V_all = matrix_memory_allocator.Allocate("V_all");
-    gpu_sim.Copy(values[0], V_all, kInSharedMemory);
-    
-    for (size_t j = 1; j <= i; ++j) {
+    // Move all values to SRAM first
+    for (size_t j = 0; j <= i; ++j) {
       gpu_sim.MoveMatrixToSharedMem(values[j]);
-      Matrix* new_V_all = matrix_memory_allocator.Allocate("new_V_all");
-      gpu_sim.Concat(V_all, values[j], new_V_all, 0, kInSharedMemory);
-      gpu_sim.ReleaseMatrix(V_all);
-      V_all = new_V_all;
+    }
+    gpu_sim.Run(false, &matrix_memory_allocator);
+    
+    // Create V_all by concatenating values
+    Matrix* V_all = nullptr;
+    for (size_t j = 0; j <= i; ++j) {
+      if (V_all == nullptr) {
+        // First value: copy to a new matrix
+        V_all = matrix_memory_allocator.Allocate("V_all");
+        gpu_sim.Copy(values[j], V_all, kInSharedMemory);
+        gpu_sim.Run(false, &matrix_memory_allocator);
+      } else {
+        // Concatenate next value
+        Matrix* new_V_all = matrix_memory_allocator.Allocate("new_V_all");
+        gpu_sim.Concat(V_all, values[j], new_V_all, 0, kInSharedMemory);
+        gpu_sim.ReleaseMatrix(V_all);
+        V_all = new_V_all;
+      }
     }
     
     // Step 3: Move query to SRAM
